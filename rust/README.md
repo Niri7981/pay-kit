@@ -24,6 +24,8 @@ For explicitly configured V2 channel callbacks on one-time MPP payments, see
 
 ---
 
+For separate transaction construction and signing, see [Unsigned x402 exact preparation](docs/unsigned-exact.md).
+
 ## Quick start
 
 Three progressively-realistic snippets. [axum](https://github.com/tokio-rs/axum)
