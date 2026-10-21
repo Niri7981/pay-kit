@@ -28,12 +28,32 @@ pub async fn build_payment(
     requirements: &PaymentRequirements,
     max_tx_version: Option<crate::core::tx::TxVersion>,
 ) -> Result<PaymentPayload, Error> {
+    let mut tx =
+        prepare_unsigned_payment(&signer.pubkey(), rpc, requirements, max_tx_version).await?;
+    crate::core::signing::sign_versioned_transaction_slot(signer, &mut tx).await?;
+    let encoded = crate::core::tx::encode(&tx)?;
+    Ok(PaymentPayload {
+        network: requirements.network.clone(),
+        proof: PaymentProof::Transaction {
+            transaction: encoded,
+        },
+    })
+}
+
+/// Same exact builder, public buyer key only. Leaves every signature slot zero.
+/// Hosts must independently bind the wire to authority before signing or sending.
+pub async fn prepare_unsigned_payment(
+    payer: &Pubkey,
+    rpc: &RpcClient,
+    requirements: &PaymentRequirements,
+    max_tx_version: Option<crate::core::tx::TxVersion>,
+) -> Result<solana_transaction::versioned::VersionedTransaction, Error> {
     let amount: u64 = requirements
         .amount
         .parse()
         .map_err(|_| Error::Other(format!("Invalid amount: {}", requirements.amount)))?;
 
-    let signer_pubkey = signer.pubkey();
+    let signer_pubkey = *payer;
 
     let recipient = Pubkey::from_str(&requirements.recipient)
         .map_err(|e| Error::Other(format!("Invalid recipient: {e}")))?;
@@ -86,7 +106,7 @@ pub async fn build_payment(
     let actual_fee_payer = fee_payer_pubkey.unwrap_or(signer_pubkey);
     let version =
         crate::core::tx::negotiate(requirements.transaction_versions.as_deref(), max_tx_version)?;
-    let mut tx = crate::core::tx::build_unsigned(
+    let tx = crate::core::tx::build_unsigned(
         version,
         &actual_fee_payer,
         &instructions,
@@ -94,16 +114,7 @@ pub async fn build_payment(
         Some(&budget),
     )?;
 
-    crate::core::signing::sign_versioned_transaction_slot(signer, &mut tx).await?;
-
-    let encoded = crate::core::tx::encode(&tx)?;
-
-    Ok(PaymentPayload {
-        network: requirements.network.clone(),
-        proof: PaymentProof::Transaction {
-            transaction: encoded,
-        },
-    })
+    Ok(tx)
 }
 
 /// Build a payment and return the base64-encoded `PAYMENT-SIGNATURE` header value,
